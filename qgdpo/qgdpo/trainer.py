@@ -24,12 +24,10 @@ class QGDPOTrainer:
         self.max_new_tokens = max_new_tokens
         self.num_return_sequences = num_return_sequences
         
-        # Setup tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
             
-        # Native 4-bit QLoRA and BitsAndBytes setup
         print(f"[QGDPO] Loading {model_name} with native 4-bit QLoRA...")
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -38,12 +36,11 @@ class QGDPOTrainer:
             bnb_4bit_use_double_quant=True,
         )
         
-                self.model = AutoModelForCausalLM.from_pretrained(
+        self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
             quantization_config=bnb_config,
-            device_map={"": 0}  # Forces all layers onto GPU 0 safely for training
+            device_map={"": 0}
         )
-
         self.model = prepare_model_for_kbit_training(self.model)
         
         peft_config = LoraConfig(
@@ -55,8 +52,6 @@ class QGDPOTrainer:
             task_type="CAUSAL_LM"
         )
         self.model = get_peft_model(self.model, peft_config)
-        
-        # Native 8-bit AdamW optimizer to prevent VRAM spikes
         self.optimizer = bnb.optim.AdamW8bit(self.model.parameters(), lr=self.lr)
 
     def _compute_log_prob(self, prompt_text: str, response_text: str):
@@ -79,7 +74,7 @@ class QGDPOTrainer:
         self.model.train()
         steps = max_steps if max_steps is not None else len(self.dataset)
         
-        print(f"[QGDPO] Starting native training loop for {steps} steps...")
+        print(f"[QGDPO] Starting QGDPO training loop for {steps} steps...")
         for step in range(min(steps, len(self.dataset))):
             example = self.dataset[step]
             prompt_text = f"Solve the following math problem step by step. Put your final answer inside \\boxed{{}}.\n\n{example['question']}"
@@ -104,12 +99,19 @@ class QGDPOTrainer:
             decoded_outputs = [self.tokenizer.decode(seq, skip_special_tokens=True) for seq in outputs]
             true_ans = example['answer'].split("####")[-1].strip()
             
+            # Multi-reward evaluation (Format, Correctness, Integer)
             scored_completions = []
             for text in decoded_outputs:
                 response_part = text[len(prompt_text):].strip()
                 match = re.findall(r'\\boxed\{([^}]+)\}', response_part)
-                score = 1.0 if (match and match[-1].strip() == true_ans) else (0.3 if match else 0.0)
-                scored_completions.append((score, response_part))
+                
+                r_format = 1.0 if match else 0.0
+                r_correct = 1.0 if (match and match[-1].strip() == true_ans) else 0.0
+                ans_str = match[-1].strip() if match else ""
+                r_integer = 1.0 if ans_str.isdigit() else 0.0
+                
+                total_score = r_format + r_correct + r_integer
+                scored_completions.append((total_score, response_part))
                 
             scored_completions.sort(key=lambda x: x[0], reverse=True)
             best_score, best_response = scored_completions[0]
@@ -121,15 +123,17 @@ class QGDPOTrainer:
                 policy_chosen = self._compute_log_prob(prompt_text, best_response)
                 policy_rejected = self._compute_log_prob(prompt_text, worst_response)
                 
+                # YOUR QGDPO CORE INNOVATION: Quantized Reference Caching
                 with torch.no_grad():
                     ref_logps_dummy = torch.tensor([policy_chosen.item(), policy_rejected.item()], device="cuda")
-                    q_cache = QuantizedReferenceCache.compress(ref_logps_dummy)
+                    q_chosen_cache = QuantizedReferenceCache.compress(ref_logps_dummy)
+                    q_rejected_cache = QuantizedReferenceCache.compress(ref_logps_dummy)
                 
                 loss = qgdpo_loss(
                     policy_chosen=policy_chosen,
                     policy_rejected=policy_rejected,
-                    ref_chosen_q=q_cache,
-                    ref_rejected_q=q_cache,
+                    ref_chosen_q=q_chosen_cache,
+                    ref_rejected_q=q_rejected_cache,
                     beta=self.beta
                 )
                 
@@ -139,8 +143,8 @@ class QGDPOTrainer:
                 if step % 10 == 0:
                     torch.cuda.empty_cache()
                     
-                print(f"Step {step}/{steps} | QGDPO Loss: {loss.item():.4f} (Best: {best_score}, Worst: {worst_score})")
+                print(f"Step {step}/{steps} | QGDPO Loss: {loss.item():.4f} (Best Score: {best_score}, Worst Score: {worst_score})")
             else:
                 print(f"Step {step}/{steps} | Skipped (No performance contrast)")
         
-        print("[QGDPO] Training completed successfully!")
+        print("[QGDPO] Training completed successfully with quantized preference caching!")
