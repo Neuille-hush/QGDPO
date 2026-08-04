@@ -1,15 +1,17 @@
 import torch
 import re
+import os
+import wandb
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from .quantization import QuantizedReferenceCache
 from .losses import qgdpo_loss
 
 class QGDPOTrainer:
-    def __init__(self, model_name, dataset, beta=0.1, max_new_tokens=128, num_return_sequences=4):
+    def __init__(self, model_name, dataset, beta=0.2, max_new_tokens=128, num_return_sequences=4):
         self.model_name = model_name
         self.dataset = dataset
-        self.beta = beta
+        self.beta = beta  # Tightened KL penalty to prevent persona hallucination
         self.max_new_tokens = max_new_tokens
         self.num_return_sequences = num_return_sequences
         
@@ -17,7 +19,6 @@ class QGDPOTrainer:
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
             
-        # 4-bit QLoRA configuration to fit safely in Colab T4 VRAM
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
@@ -42,7 +43,9 @@ class QGDPOTrainer:
         )
         
         self.model = get_peft_model(base_model, peft_config)
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=2e-5)
+        
+        # ALIGNED: Learning rate set to 1e-6 to match the official NVIDIA/verl scripts exactly
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-6)
 
     def _compute_log_prob(self, prompt, response):
         full_text = prompt + response
@@ -55,14 +58,19 @@ class QGDPOTrainer:
         gather_log_probs = torch.gather(log_probs, 2, labels.unsqueeze(-1)).squeeze(-1)
         return gather_log_probs.sum()
 
-    def train(self, max_steps=10):
+    def train(self, max_steps=400, save_dir="/content/drive/MyDrive/QGDPO_GSM8K_Checkpoints"):
+        # Initializing wandb with a v3 run name to track this new hyperparameter setup
+        wandb.init(project="qgdpo-research-benchmark", name="qwen-1.5b-gsm8k-v3-aligned")
         self.model.train()
         step = 0
-        steps = max_steps
+        dataset_iter = iter(self.dataset)
         
-        for example in self.dataset:
-            if step >= max_steps:
-                break
+        while step < max_steps:
+            try:
+                example = next(dataset_iter)
+            except StopIteration:
+                dataset_iter = iter(self.dataset)
+                example = next(dataset_iter)
                 
             prompt_text = f"Question: {example['question']}\nAnswer:"
             inputs = self.tokenizer(prompt_text, return_tensors="pt").to("cuda")
@@ -74,6 +82,7 @@ class QGDPOTrainer:
                     num_return_sequences=self.num_return_sequences,
                     do_sample=True,
                     temperature=0.7,
+                    repetition_penalty=1.1, # ALIGNED: Protects against infinite token loops
                     pad_token_id=self.tokenizer.pad_token_id
                 )
             
@@ -94,18 +103,16 @@ class QGDPOTrainer:
 
             rewards_tensor = torch.tensor(reward_matrix, dtype=torch.float32, device="cuda")
 
-            # GDPO Decoupled Normalization with micro-jitter safeguard and tensor shape fix
             mean = rewards_tensor.mean(dim=0, keepdim=True)
             std = rewards_tensor.std(dim=0, unbiased=False, keepdim=True)
             
+            # FIXED: Safely skip the step if there's no reward variance (prevents training on garbage ties)
             if torch.all(std < 1e-5):
-                lengths = torch.tensor([len(text) for text in decoded_outputs], dtype=torch.float32, device="cuda").unsqueeze(1)
-                rewards_tensor = rewards_tensor + (lengths / (lengths.max() + 1e-5)) * 1e-3
-                mean = rewards_tensor.mean(dim=0, keepdim=True)
-                std = rewards_tensor.std(dim=0, unbiased=False, keepdim=True) + 1e-8
-            else:
-                std = std + 1e-8
+                print(f"Step {step}/{max_steps} | Skipped (No reward variance - all responses failed/tied)")
+                step += 1
+                continue
 
+            std = std + 1e-8
             normalized_rewards = (rewards_tensor - mean) / std
             advantages = normalized_rewards.sum(dim=-1)
 
@@ -137,9 +144,35 @@ class QGDPOTrainer:
                 loss.backward()
                 self.optimizer.step()
                 
-                print(f"Step {step}/{steps} | QGDPO Loss: {loss.item():.4f} (Advantage Gap: {(advantages[best_idx] - advantages[worst_idx]).item():.4f})")
+                adv_gap = (advantages[best_idx] - advantages[worst_idx]).item()
+                
+                wandb.log({
+                    "step": step,
+                    "loss": loss.item(),
+                    "advantage_gap": adv_gap,
+                    "mean_format_reward": rewards_tensor[:, 0].mean().item(),
+                    "mean_correct_reward": rewards_tensor[:, 1].mean().item()
+                })
+                
+                print(f"Step {step}/{max_steps} | Loss: {loss.item():.4f} | Advantage Gap: {adv_gap:.4f}")
             else:
-                print(f"Step {step}/{steps} | Skipped (Identical indices)")
+                print(f"Step {step}/{max_steps} | Skipped (Identical indices)")
+            
+            # AUTO-CHECKPOINT to Google Drive every 100 steps
+            if (step + 1) % 100 == 0 and save_dir:
+                ckpt_path = os.path.join(save_dir, f"step_{step+1}")
+                self.model.save_pretrained(ckpt_path)
+                self.tokenizer.save_pretrained(ckpt_path)
+                print(f"--> Checkpoint saved to Google Drive at step {step+1}!")
             
             torch.cuda.empty_cache()
             step += 1
+            
+        # Final save
+        if save_dir:
+            final_path = os.path.join(save_dir, "final")
+            self.model.save_pretrained(final_path)
+            self.tokenizer.save_pretrained(final_path)
+            print(f"--> Final model successfully saved to Google Drive at {final_path}!")
+            
+        wandb.finish()
