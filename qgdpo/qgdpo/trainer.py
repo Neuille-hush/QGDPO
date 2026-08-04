@@ -38,11 +38,12 @@ class QGDPOTrainer:
             bnb_4bit_use_double_quant=True,
         )
         
-        self.model = AutoModelForCausalLM.from_pretrained(
+                self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
             quantization_config=bnb_config,
-            device_map="auto"
+            device_map={"": 0}  # Forces all layers onto GPU 0 safely for training
         )
+
         self.model = prepare_model_for_kbit_training(self.model)
         
         peft_config = LoraConfig(
