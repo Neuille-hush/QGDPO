@@ -1,120 +1,92 @@
-<h1 align="center">QGDPO</h1>
+QGDPO
 
 <p align="center">
   <b>Quantized Group reward-Decoupled Normalization Policy Optimization</b><br>
-  NVIDIA's GDPO, shrunk to fit on a single T4 GPU.
-</p>
-
-<p align="center">
+  NVIDIA's GDPO, adapted to train on a single 16 GB T4 GPU.
+</p><p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
   <img alt="GPU: NVIDIA T4" src="https://img.shields.io/badge/GPU-NVIDIA_T4_16GB-76B900.svg">
   <img alt="Quantization: NF4" src="https://img.shields.io/badge/Quantization-4--bit_NF4-orange.svg">
-</p>
+</p>---
 
----
+What is QGDPO?
 
-## What is QGDPO?
+QGDPO is a lightweight implementation of "NVIDIA's GDPO" (https://github.com/NVlabs/GDPO), designed to make multi-reward policy optimization practical on a single NVIDIA T4 GPU (16 GB VRAM).
 
-QGDPO is built from [NVIDIA's GDPO](https://github.com/NVlabs/GDPO) (Group reward-Decoupled Normalization Policy Optimization) with one sole mission: **make GDPO fit and train on a single NVIDIA T4 GPU (16 GB VRAM).**
+It combines 4-bit NF4 quantization, QLoRA, and GDPO-style reward normalization to reduce memory requirements.
 
-It does this by combining GDPO with 4-bit NF4 quantization and QLoRA, so the base model stays small in memory while only lightweight adapter weights are trained.
+Why GDPO?
 
-## Why GDPO?
+GRPO combines multiple rewards into one scalar before normalization. This can cause different reward signals to cancel each other out.
 
-Group-based RL methods like GRPO sample several responses per prompt and score each one relative to its group. With multiple rewards, GRPO adds them into a single scalar *before* normalizing. Rewards with larger scales or different distributions can then dominate, and different reward combinations can collapse into near-identical advantages.
+GDPO addresses this by:
 
-GDPO fixes this by **decoupling the normalization**:
+1. Normalizing each reward channel independently.
+2. Combining normalized rewards using configurable weights.
+3. Whitening the resulting advantages across the training batch.
 
-1. Normalize each reward separately within its group.
-2. Combine the normalized rewards using their weights.
-3. Normalize the combined advantage across the batch.
+QGDPO vs. GRPO
 
-Each objective keeps its own contribution to the training signal.
+"QGDPO vs GRPO" (docs/images/gdpo-vs-grpo.png)
 
-> GDPO is a GRPO-style policy optimization method. It is not Direct Preference Optimization (DPO) and does not use preference pairs.
+Reward grid
 
-![GDPO vs. GRPO](docs/images/img.png)
+QGDPO uses four independent reward channels:
 
-### Reward grid example
+- Format: Was the answer enclosed in "\boxed{}"?
+- Correctness: Did the numerical answer match the expected answer?
+- Integer: Was the answer an integer?
+- Completion: Did the response finish without truncation?
 
-The figure below shows one prompt with nine rollouts and two binary rewards (format and correctness).
+Default reward weights: "(1.0, 1.0, 0.5, 0.5)".
 
-- **GRPO** sums the rewards first. Every rollout ends up with the same summed reward, so the group's standard deviation is zero and the advantage is 0/0: no learning signal.
-- **GDPO** normalizes each reward on its own, so rollouts that satisfy both rewards, one reward, or neither get distinct advantages.
+"QGDPO Reward Grid" (docs/images/reward-grid.png)
 
-![Reward grid](docs/images/img2.png)
+Memory-saving setup
 
-Note that GDPO restores the gap between "did both" and "did neither", but once the two channels are summed, the two single-reward cases still share the same value. It does not fully separate every failure mode.
+Component| Configuration
+Base model| Qwen2.5-1.5B-Instruct
+Quantization| 4-bit NF4
+Fine-tuning| QLoRA
+GPU target| NVIDIA T4
+VRAM| 16 GB
 
-## Memory-saving setup
+Installation
 
-| Component | Configuration |
-|---|---|
-| Base model precision | 4-bit |
-| Quantization format | NF4 |
-| Fine-tuning | QLoRA |
-| Target GPU | NVIDIA T4 |
-| Target VRAM | 16 GB |
-
-- **NF4 (NormalFloat 4-bit):** a quantization format designed for normally distributed neural network weights. It stores model parameters compactly.
-- **QLoRA:** keeps the base model quantized and trains only low-rank adapters, which cuts memory use compared with full fine-tuning.
-
-## Requirements
-
-- NVIDIA T4 GPU (16 GB VRAM)
-- CUDA-compatible PyTorch environment
-
-Actual memory use depends on model size, sequence length, batch size, generation settings, and training configuration.
-
-## Installation
-
-```bash
 git clone https://github.com/Neuille-hush/QGDPO.git
 cd QGDPO
 pip install -r requirements.txt
-```
 
-## Usage
+Usage
 
-The training implementation lives in `train.py`:
+Run the training:
 
-```bash
-python train.py
-```
+accelerate launch train.py
 
-Set the model, dataset, optimization parameters, and hardware options in the script. On a 16 GB T4, watch memory usage and lower batch size, sequence length, or generation length if you run out of VRAM.
+Run a quick sanity check:
 
-## Repository structure
+accelerate launch train.py --smoke
 
-```
-QGDPO/
-├── train.py
-├── requirements.txt
-├── LICENSE
-├── README.md
-└── docs/
-    └── images/
-        ├── img.png
-        └── img2.png
-```
+Run the GRPO baseline:
 
-## Limitations
+accelerate launch train.py --mode grpo
 
-QGDPO is an experimental implementation, not a claim of better performance than full-precision GDPO. Memory usage, convergence, and results depend on the model, dataset, hyperparameters, and hardware, and need empirical testing.
+Run the self-tests:
 
-## Acknowledgements
+python train.py --selftest
 
-QGDPO is derived from [NVIDIA's GDPO](https://github.com/NVlabs/GDPO). All credit for the algorithm goes to its authors:
+Limitations
 
-> Liu et al., *GDPO: Group reward-Decoupled Normalization Policy Optimization for Multi-reward RL Optimization*, 2026. [arXiv:2601.05242](https://arxiv.org/abs/2601.05242)
+QGDPO is an experimental implementation. Performance and convergence depend on the model, dataset, reward design, hyperparameters, and hardware.
 
-## References
+Acknowledgements
 
-- [NVIDIA GDPO](https://github.com/NVlabs/GDPO)
-- [GDPO paper](https://arxiv.org/abs/2601.05242)
-- [QLoRA: Efficient Finetuning of Quantized LLMs](https://arxiv.org/abs/2305.14314)
-- [LoRA: Low-Rank Adaptation of Large Language Models](https://arxiv.org/abs/2106.09685)
+Based on NVIDIA's "GDPO" (https://github.com/NVlabs/GDPO).
 
-## License
+Liu et al., GDPO: Group reward-Decoupled Normalization Policy Optimization for Multi-reward RL Optimization, 2026.
 
-Licensed under the [Apache License 2.0](LICENSE).
+"Paper (arXiv:2601.05242)" (https://arxiv.org/abs/2601.05242).
+
+License
+
+Licensed under the "Apache License 2.0" (LICENSE).
