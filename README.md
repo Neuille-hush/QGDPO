@@ -23,13 +23,13 @@ GDPO builds on group-relative optimization while addressing the contribution of 
 
 The following diagram illustrates the conceptual distinction between GRPO and GDPO.
 
-"GDPO vs. GRPO comparison" (docs/images/gdpo-vs-grpo.png)
+"GDPO vs. GRPO comparison" (docs/images/gdpo-vs-grpo.pdf)
 
 Reward Structure
 
 The following figure illustrates the reward structure used to explain the contribution of individual reward components to groupwise optimization.
 
-"GDPO reward grid" (docs/images/reward-grid.png)
+"GDPO reward grid" (docs/images/reward-grid.pdf)
 
 Quantization and Fine-Tuning
 
