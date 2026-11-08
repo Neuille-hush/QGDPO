@@ -1,4 +1,4 @@
-QGDPO
+# QGDPO
 
 <p align="center">
   <strong>Quantized Group reward-Decoupled Normalization Policy Optimization</strong><br>
@@ -6,10 +6,10 @@ QGDPO
 </p>
 
 <p align="center">
-  <img alt="Apache 2.0 License" src=""https://img.shields.io/badge/License-Apache_2.0-blue.svg" (https://img.shields.io/badge/License-Apache_2.0-blue.svg)">
-  <img alt="GPU: NVIDIA T4 16 GB" src=""https://img.shields.io/badge/GPU-NVIDIA_T4_16GB-76B900.svg" (https://img.shields.io/badge/GPU-NVIDIA_T4_16GB-76B900.svg)">
-  <img alt="4-bit NF4 quantization" src=""https://img.shields.io/badge/Quantization-4--bit_NF4-orange.svg" (https://img.shields.io/badge/Quantization-4--bit_NF4-orange.svg)">
-  <img alt="QLoRA fine-tuning" src=""https://img.shields.io/badge/Fine--tuning-QLoRA-informational.svg" (https://img.shields.io/badge/Fine--tuning-QLoRA-informational.svg)">
+  <img alt="Apache 2.0 License" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg">
+  <img alt="GPU: NVIDIA T4 16 GB" src="https://img.shields.io/badge/GPU-NVIDIA_T4_16GB-76B900.svg">
+  <img alt="4-bit NF4 quantization" src="https://img.shields.io/badge/Quantization-4--bit_NF4-orange.svg">
+  <img alt="QLoRA fine-tuning" src="https://img.shields.io/badge/Fine--tuning-QLoRA-informational.svg">
 </p>
 
 ## How QGDPO works
