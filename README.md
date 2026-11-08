@@ -15,7 +15,7 @@
 
 ## What is QGDPO?
 
-QGDPO is built on [NVIDIA's GDPO](https://github.com/NVlabs/GDPO) (Group reward-Decoupled Normalization Policy Optimization), with one sole mission: **make GDPO fit and train on a single NVIDIA T4 GPU (16 GB VRAM).**
+QGDPO is built from [NVIDIA's GDPO](https://github.com/NVlabs/GDPO) (Group reward-Decoupled Normalization Policy Optimization) with one sole mission: **make GDPO fit and train on a single NVIDIA T4 GPU (16 GB VRAM).**
 
 It does this by combining GDPO with 4-bit NF4 quantization and QLoRA, so the base model stays small in memory while only lightweight adapter weights are trained.
 
@@ -35,9 +35,16 @@ Each objective keeps its own contribution to the training signal.
 
 ![GDPO vs. GRPO](docs/images/img.png)
 
-### Reward structure
+### Reward grid example
+
+The figure below shows one prompt with nine rollouts and two binary rewards (format and correctness).
+
+- **GRPO** sums the rewards first. Every rollout ends up with the same summed reward, so the group's standard deviation is zero and the advantage is 0/0: no learning signal.
+- **GDPO** normalizes each reward on its own, so rollouts that satisfy both rewards, one reward, or neither get distinct advantages.
 
 ![Reward grid](docs/images/img2.png)
+
+Note that GDPO restores the gap between "did both" and "did neither", but once the two channels are summed, the two single-reward cases still share the same value. It does not fully separate every failure mode.
 
 ## Memory-saving setup
 
