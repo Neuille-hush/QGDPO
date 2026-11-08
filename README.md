@@ -1,19 +1,19 @@
 QGDPO
 
 <p align="center">
-  <strong>Quantized Group reward-Decoupled Normalization Policy Optimization</strong><br>
-  NVIDIA's GDPO adapted for training on a single 16 GB NVIDIA T4 GPU.
+  **Quantized Group reward-Decoupled Normalization Policy Optimization**  
+  NVIDIA's GDPO adapted for a single 16 GB NVIDIA T4 GPU.
 </p><p align="center">
-  <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
-  <img alt="GPU: NVIDIA T4" src="https://img.shields.io/badge/GPU-NVIDIA_T4_16GB-76B900.svg">
-  <img alt="Quantization: NF4" src="https://img.shields.io/badge/Quantization-4-bit_NF4-orange.svg">
+  <img alt="Apache 2.0 License" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg">
+  <img alt="NVIDIA T4 16GB" src="https://img.shields.io/badge/GPU-NVIDIA_T4_16GB-76B900.svg">
+  <img alt="4-bit NF4" src="https://img.shields.io/badge/Quantization-4--bit_NF4-orange.svg">
 </p>QGDPO is a lightweight implementation of "NVIDIA's GDPO" (https://github.com/NVlabs/GDPO), designed to make multi-reward policy optimization practical on a single NVIDIA T4 GPU with 16 GB of VRAM.
 
 It combines 4-bit NF4 quantization, QLoRA, and GDPO-style reward normalization to reduce memory requirements.
 
-Why GDPO?
+GDPO vs. GRPO
 
-GRPO combines multiple rewards into a single scalar before normalization. This can cause reward signals with different scales or distributions to dominate or cancel one another.
+GRPO combines multiple rewards into a single scalar before normalization. This can cause reward signals with different scales or distributions to dominate the optimization process.
 
 GDPO addresses this by:
 
@@ -21,9 +21,7 @@ GDPO addresses this by:
 2. Combining normalized rewards using configurable weights.
 3. Whitening the resulting advantages across the training batch.
 
-QGDPO vs. GRPO
-
-"QGDPO vs GRPO" (docs/images/gdpo-vs-grpo.png)
+"GDPO vs GRPO comparison" (docs/images/gdpo-vs-grpo.png)
 
 Reward design
 
@@ -36,9 +34,9 @@ QGDPO uses four independent reward channels:
 
 Default reward weights: "(1.0, 1.0, 0.5, 0.5)".
 
-"QGDPO Reward Grid" (docs/images/reward-grid.png)
+"QGDPO reward grid" (docs/images/reward-grid.png)
 
-Memory-saving setup
+Memory-efficient setup
 
 Component| Configuration
 Base model| Qwen2.5-1.5B-Instruct
@@ -73,7 +71,7 @@ python train.py --selftest
 
 Limitations
 
-QGDPO is an experimental implementation. Performance and convergence depend on the model, dataset, reward design, hyperparameters, and hardware.
+QGDPO is an experimental implementation. Performance and convergence depend on the model, dataset, reward design, hyperparameters, and available hardware.
 
 Acknowledgements
 
