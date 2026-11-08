@@ -1,4 +1,4 @@
-#QGDPO
+# QGDPO
 
 <p align="center">
   <strong>Quantized Group reward-Decoupled Normalization Policy Optimization</strong><br>
